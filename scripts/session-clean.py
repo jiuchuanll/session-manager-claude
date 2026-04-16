@@ -12,7 +12,8 @@ import datetime
 import shutil
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
-META_PATH = os.path.expanduser("~/.claude/session-meta.json")
+_SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+META_PATH = os.path.join(_SKILL_DIR, "session-meta.json")
 
 DAYS_INACTIVE = 90
 MIN_MESSAGES = 3

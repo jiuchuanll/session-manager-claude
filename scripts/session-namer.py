@@ -3,7 +3,7 @@ SessionEnd Hook: 自动为会话生成名称
 通过 LLM 分析对话内容，生成 ≤30 字的中文会话名称，
 追加 custom-title + agent-name 到 .jsonl 文件（等效 /rename）。
 
-LLM 配置读取 ~/.claude/session-namer-config.json，支持任何 OpenAI 兼容 API。
+LLM 配置读取 skill 目录下的 session-namer-config.json，支持任何 OpenAI 兼容 API。
 首次使用需运行: python session-namer.py --setup 进行配置。
 """
 import json
@@ -14,9 +14,10 @@ import traceback
 import urllib.request
 import urllib.error
 
-LOG_PATH = os.path.expanduser("~/.claude/logs/session-namer.log")
-META_PATH = os.path.expanduser("~/.claude/session-meta.json")
-CONFIG_PATH = os.path.expanduser("~/.claude/session-namer-config.json")
+_SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOG_PATH = os.path.join(_SKILL_DIR, "logs", "session-namer.log")
+META_PATH = os.path.join(_SKILL_DIR, "session-meta.json")
+CONFIG_PATH = os.path.join(_SKILL_DIR, "session-namer-config.json")
 MAX_CONTEXT_CHARS = 4000  # 前2000 + 后2000
 
 DEFAULT_CONFIG = {

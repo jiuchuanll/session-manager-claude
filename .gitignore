@@ -1,4 +1,6 @@
 session-namer-config.json
+session-meta.json
+logs/
 *.log
 __pycache__/
 .claude/

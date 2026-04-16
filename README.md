@@ -42,7 +42,7 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --setup 
 - `openai` — OpenAI GPT-4o-mini
 - `anthropic` — Anthropic Claude Haiku
 
-配置保存在 `~/.claude/session-namer-config.json`，不会上传或共享。
+配置保存在 skill 目录下的 `session-namer-config.json`，不会上传或共享。
 
 ### 3. 配置 Hooks
 
@@ -113,7 +113,7 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --show
 
 ### 主动确认（SessionStart Hook）
 
-1. 新会话启动 → 读取 `session-meta.json` 中待确认的会话
+1. 新会话启动 → 读取 skill 目录下 `session-meta.json` 中待确认的会话
 2. 输出提醒信息，Claude 主动询问用户是否确认
 3. 用户确认/修改后更新状态
 
@@ -133,12 +133,15 @@ session-manager-claude/
 ├── README.md
 ├── config.example.json            # API 配置模板
 ├── .gitignore
-└── scripts/
-    ├── session-namer.py           # SessionEnd hook：自动命名
-    ├── session-start-reminder.py  # SessionStart hook：确认提醒
-    ├── session-list.py            # 会话列表
-    ├── session-rename.py          # 重命名/确认
-    └── session-clean.py           # 清理旧会话
+├── scripts/
+│   ├── session-namer.py           # SessionEnd hook：自动命名
+│   ├── session-start-reminder.py  # SessionStart hook：确认提醒
+│   ├── session-list.py            # 会话列表
+│   ├── session-rename.py          # 重命名/确认
+│   └── session-clean.py           # 清理旧会话
+├── session-namer-config.json      # API 配置（自动生成，不提交）
+├── session-meta.json              # 会话元数据（自动生成，不提交）
+└── logs/                          # 日志（自动生成，不提交）
 ```
 
 ## 要求
