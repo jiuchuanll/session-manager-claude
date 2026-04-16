@@ -12,14 +12,15 @@ Claude Code 会话管理 Skill —— 自动命名、列表、重命名、清理
 
 ## 安装
 
-### 1. 复制脚本
+### 1. 安装
 
 ```bash
-# 将 scripts 目录复制到 ~/.claude/scripts/
-cp -r scripts/* ~/.claude/scripts/
+# 将脚本复制到 ~/.claude/scripts/
+cp scripts/* ~/.claude/scripts/
 
-# 将 skill 目录复制到 ~/.claude/skills/
-cp -r skills/session-manager-claude ~/.claude/skills/
+# 将 SKILL.md 复制到 ~/.claude/skills/
+mkdir -p ~/.claude/skills/session-manager-claude
+cp SKILL.md ~/.claude/skills/session-manager-claude/
 ```
 
 ### 2. 配置自动命名
@@ -128,21 +129,20 @@ python ~/.claude/scripts/session-namer.py --show
 | `confirmed` | 用户已确认 |
 | `renamed` | 用户手动修改过名称 |
 
-## 文件结构
+## 仓库结构
 
 ```
-~/.claude/
-├── scripts/
-│   ├── session-namer.py          # SessionEnd hook：自动命名
-│   ├── session-start-reminder.py # SessionStart hook：确认提醒
-│   ├── session-list.py           # 会话列表
-│   ├── session-rename.py         # 重命名/确认
-│   └── session-clean.py          # 清理旧会话
-├── skills/
-│   └── session-manager-claude/
-│       └── SKILL.md              # Skill 定义
-├── session-namer-config.json     # API 配置（用户本地）
-└── session-meta.json             # 会话元数据（自动生成）
+session-manager-claude/
+├── SKILL.md                       # Skill 定义
+├── README.md
+├── config.example.json            # API 配置模板
+├── .gitignore
+└── scripts/
+    ├── session-namer.py           # SessionEnd hook：自动命名
+    ├── session-start-reminder.py  # SessionStart hook：确认提醒
+    ├── session-list.py            # 会话列表
+    ├── session-rename.py          # 重命名/确认
+    └── session-clean.py           # 清理旧会话
 ```
 
 ## 要求
