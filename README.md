@@ -15,12 +15,8 @@ Claude Code 会话管理 Skill —— 自动命名、列表、重命名、清理
 ### 1. 安装
 
 ```bash
-# 将脚本复制到 ~/.claude/scripts/
-cp scripts/* ~/.claude/scripts/
-
-# 将 SKILL.md 复制到 ~/.claude/skills/
-mkdir -p ~/.claude/skills/session-manager-claude
-cp SKILL.md ~/.claude/skills/session-manager-claude/
+# 将整个 skill 目录复制到 ~/.claude/skills/
+cp -r . ~/.claude/skills/session-manager-claude/
 ```
 
 ### 2. 配置自动命名
@@ -29,13 +25,13 @@ cp SKILL.md ~/.claude/skills/session-manager-claude/
 
 ```bash
 # 使用预设（推荐）
-python ~/.claude/scripts/session-namer.py --setup --preset zhipu-flash --api-key YOUR_KEY
+python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --setup --preset zhipu-flash --api-key YOUR_KEY
 
 # 查看所有预设
-python ~/.claude/scripts/session-namer.py --presets
+python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --presets
 
 # 自定义 API
-python ~/.claude/scripts/session-namer.py --setup --api-base https://api.example.com/v1 --api-key YOUR_KEY --model model-name
+python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --setup --api-base https://api.example.com/v1 --api-key YOUR_KEY --model model-name
 ```
 
 可用预设：
@@ -61,7 +57,7 @@ python ~/.claude/scripts/session-namer.py --setup --api-base https://api.example
         "hooks": [
           {
             "type": "command",
-            "command": "python ~/.claude/scripts/session-namer.py",
+            "command": "python ~/.claude/skills/session-manager-claude/scripts/session-namer.py",
             "timeout": 30000
           }
         ]
@@ -73,7 +69,7 @@ python ~/.claude/scripts/session-namer.py --setup --api-base https://api.example
         "hooks": [
           {
             "type": "command",
-            "command": "python ~/.claude/scripts/session-start-reminder.py",
+            "command": "python ~/.claude/skills/session-manager-claude/scripts/session-start-reminder.py",
             "timeout": 5000
           }
         ]
@@ -83,16 +79,16 @@ python ~/.claude/scripts/session-namer.py --setup --api-base https://api.example
 }
 ```
 
-> **Windows 用户**：将 `~/.claude/scripts/` 替换为完整路径，如 `"python \"C:/Users/YOUR_USER/.claude/scripts/session-namer.py\""`。
+> **Windows 用户**：将 `~` 替换为完整路径，如 `"python \"C:/Users/YOUR_USER/.claude/skills/session-manager-claude/scripts/session-namer.py\""`。
 
 ### 4. 验证
 
 ```bash
 # 测试 API 连接
-python ~/.claude/scripts/session-namer.py --test
+python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --test
 
 # 查看当前配置
-python ~/.claude/scripts/session-namer.py --show
+python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --show
 ```
 
 ## 使用
