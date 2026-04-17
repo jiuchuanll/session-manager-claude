@@ -10,6 +10,7 @@ import sys
 import argparse
 import datetime
 import shutil
+sys.stdout.reconfigure(encoding='utf-8')
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -5,6 +5,7 @@ SessionStart Hook: 提醒用户确认自动命名的会话
 import json
 import sys
 import os
+sys.stdout.reconfigure(encoding='utf-8')
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 META_PATH = os.path.join(_SKILL_DIR, "session-meta.json")

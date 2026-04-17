@@ -13,6 +13,7 @@ import datetime
 import traceback
 import urllib.request
 import urllib.error
+sys.stdout.reconfigure(encoding='utf-8')
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_PATH = os.path.join(_SKILL_DIR, "logs", "session-namer.log")
