@@ -56,7 +56,9 @@ python "~/.claude/skills/session-manager-claude/scripts/session-list.py" --works
 python "~/.claude/skills/session-manager-claude/scripts/session-list.py" --workspace all --json
 ```
 
-**展示格式**：将 JSON 结果格式化为表格，包含：会话名称、消息数、最后修改时间、命名状态。
+**展示格式**：将 JSON 结果格式化为表格，包含：ID前缀、会话名称、消息数、最后修改时间、命名状态。
+
+表格列顺序：`| ID前缀 | 会话名称 | 消息数 | 最后修改 | 状态 |`
 
 命名状态图标：
 - 有 customTitle 且 namingStatus 为 confirmed → ✅已确认
@@ -64,7 +66,7 @@ python "~/.claude/skills/session-manager-claude/scripts/session-list.py" --works
 - 有 customTitle 且 namingStatus 为 renamed → ✏️已重命名
 - 无 customTitle → ⚪未命名
 
-每个会话显示 sessionId 的前 8 位用于后续操作引用。
+ID前缀为 sessionId 的前 8 位，用反引号包裹显示，供后续操作引用。
 
 ### 2. 确认最近的自动命名
 
