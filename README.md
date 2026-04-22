@@ -1,27 +1,51 @@
 # session-manager-claude
 
-Claude Code 会话管理 Skill —— 自动命名、列表、重命名、清理。
+Claude Code 会话管理 Skill —— 三层防护自动命名、交互式命名、列表、重命名、清理。
 
 ## 功能
 
-- **自动命名**：会话结束时通过 LLM 自动生成会话名称（SessionEnd Hook）
-- **主动确认**：下次会话启动时提醒用户确认或修改自动命名的名称（SessionStart Hook）
+- **/bye 交互式命名**：退出前由 Claude 直接生成会话名称，用户确认后保存（零额外 API 调用）
+- **自动命名兜底**：忘记 /bye 直接 /exit 时，SessionEnd Hook 静默调用 LLM API 生成名称
+- **启动时确认**：下次会话启动时提醒未确认/未命名的会话，由 Claude 主动询问
 - **会话列表**：按工作区查看所有会话，显示名称、消息数、命名状态
-- **重命名会话**：通过 Skill 命令重命名任意会话
-- **清理旧会话**：识别并安全清理过期会话、碎片会话、孤立目录
+- **重命名会话**：通过 ID 前缀重命名任意会话
+- **清理旧会话**：识别并安全清理过期会话、碎片会话
+
+## 架构
+
+三层防护，覆盖所有退出场景：
+
+```
+层级 1：/bye（主要路径 — 交互式）
+  用户输入 /bye → Claude 根据对话上下文生成名称
+  → 用户确认/修改 → 保存为 user_confirmed
+  → SessionEnd 不会覆盖
+
+层级 2：SessionEnd Hook（兜底 — 静默）
+  /exit → 检查 meta → 已 user_confirmed → 跳过
+  → 未确认 → 直接调用 LLM API → 自动生成 → 标记为 auto
+
+层级 3：SessionStart Hook（最终兜底）
+  新会话启动 → 扫描未确认 + 未命名会话
+  → Claude 主动询问用户确认/修改
+```
+
+| 用户操作 | /bye | SessionEnd | SessionStart | 结果 |
+|---------|------|-----------|-------------|------|
+| /bye 确认 → /exit | 保存名称 | 跳过 | 无待确认 | 完美 |
+| /bye 取消 → /exit | 未修改 | 自动生成 | 下次确认 | OK |
+| 直接 /exit | — | 自动生成 | 下次确认 | 兜底有效 |
+| Ctrl+C 强退 | — | 可能不触发 | 检测未命名 | 最终兜底 |
 
 ## 安装
 
-### 1. 安装
+### 1. 复制 Skill 文件
 
 ```bash
-# 将整个 skill 目录复制到 ~/.claude/skills/
 cp -r . ~/.claude/skills/session-manager-claude/
 ```
 
-### 2. 配置自动命名
-
-首次使用需配置 LLM API（用于自动命名）：
+### 2. 配置 LLM API（用于 SessionEnd 自动命名兜底）
 
 ```bash
 # 使用预设（推荐）
@@ -42,7 +66,7 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --setup 
 - `openai` — OpenAI GPT-4o-mini
 - `anthropic` — Anthropic Claude Haiku
 
-配置保存在 skill 目录下的 `session-namer-config.json`，不会上传或共享。
+> 不配置 API 也可以使用 /bye 交互命名（由 Claude 在对话中直接生成，不需要外部 API）。API 仅用于 SessionEnd 静默兜底。
 
 ### 3. 配置 Hooks
 
@@ -70,7 +94,7 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --setup 
           {
             "type": "command",
             "command": "python ~/.claude/skills/session-manager-claude/scripts/session-start-reminder.py",
-            "timeout": 5000
+            "timeout": 10000
           }
         ]
       }
@@ -79,7 +103,7 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --setup 
 }
 ```
 
-> **Windows 用户**：将 `~` 替换为完整路径，如 `"python \"C:/Users/YOUR_USER/.claude/skills/session-manager-claude/scripts/session-namer.py\""`。
+> **Windows 用户**：将路径替换为完整路径，如 `"python \"C:/Users/YOUR_USER/.claude/skills/session-manager-claude/scripts/session-namer.py\""`。
 
 ### 4. 验证
 
@@ -93,8 +117,9 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --show
 
 ## 使用
 
-安装完成后，在 Claude Code 中直接用自然语言操作：
+在 Claude Code 中直接用自然语言操作：
 
+- **/bye** — 退出前交互式命名当前会话（推荐）
 - **「会话列表」** — 列出当前工作区的会话
 - **「所有会话」** — 列出所有工作区的会话
 - **「确认」** — 确认最近一次自动命名
@@ -103,41 +128,50 @@ python ~/.claude/skills/session-manager-claude/scripts/session-namer.py --show
 
 ## 工作原理
 
-### 自动命名（SessionEnd Hook）
+### /bye 交互式命名（层级 1）
 
-1. 会话结束 → Hook 接收 `session_id` 和 `transcript_path`
-2. 从 `.jsonl` 文件提取对话内容（兼容新旧格式）
-3. 调用 LLM API 生成 ≤30 字的中文会话名称
-4. 追加 `custom-title` + `agent-name` 到 `.jsonl` 文件（等效 `/rename`）
-5. API 失败时回退到取最后一条用户消息的前 30 字
+1. 用户输入 `/bye` → Claude 检查当前会话命名状态
+2. Claude 根据完整对话上下文生成建议名称（零 API 调用）
+3. 用户确认/修改/取消 → 原位修改 `.jsonl` 中的 `custom-title` 和 `agent-name`
+4. 标记为 `user_confirmed`，后续 SessionEnd 不会覆盖
 
-### 主动确认（SessionStart Hook）
+### 自动命名（层级 2 — SessionEnd Hook）
 
-1. 新会话启动 → 读取 skill 目录下 `session-meta.json` 中待确认的会话
-2. 输出提醒信息，Claude 主动询问用户是否确认
-3. 用户确认/修改后更新状态
+1. 会话结束 → 检查 `session-meta.json`，若已 `user_confirmed` 则跳过
+2. 从 `.jsonl` 提取最近 30 条有效对话（排除代码块、工具调用、系统消息）
+3. 直接调用 LLM API 生成名称（非 `claude -p`，3-7s 完成）
+4. 上下文过长时自动缩减：30 → 20 → 10 条消息重试
+5. 内置 prompt 污染检测，防止 API 返回模板文本作为名称
+6. 原位修改 `.jsonl`（atomic write: .tmp + os.replace）
+
+### 启动确认（层级 3 — SessionStart Hook）
+
+1. 新会话启动 → 扫描 `session-meta.json` 中 `status=auto` 的会话
+2. 扫描当前工作区中无 `custom-title` 且消息数 >= 3 的会话
+3. Claude 主动列出并询问用户确认/修改
 
 ### 命名状态
 
-| 状态 | 含义 |
-|------|------|
-| `auto` | LLM 自动命名，待用户确认 |
-| `confirmed` | 用户已确认 |
-| `renamed` | 用户手动修改过名称 |
+| 状态 | 含义 | 来源 |
+|------|------|------|
+| `user_confirmed` | 用户已确认 | /bye 或手动确认 |
+| `auto` | 自动命名，待确认 | SessionEnd Hook |
+| `renamed` | 用户手动重命名 | 重命名命令 |
+| `none` | 未命名 | — |
 
 ## 仓库结构
 
 ```
 session-manager-claude/
-├── SKILL.md                       # Skill 定义
+├── SKILL.md                       # Skill 定义（含 /bye 流程）
 ├── README.md
 ├── config.example.json            # API 配置模板
 ├── .gitignore
 ├── scripts/
-│   ├── session-namer.py           # SessionEnd hook：自动命名
-│   ├── session-start-reminder.py  # SessionStart hook：确认提醒
+│   ├── session-namer.py           # SessionEnd hook：静默自动命名（直接 API）
+│   ├── session-start-reminder.py  # SessionStart hook：扫描未确认+未命名会话
 │   ├── session-list.py            # 会话列表
-│   ├── session-rename.py          # 重命名/确认
+│   ├── session-rename.py          # 重命名/确认/检查当前会话状态
 │   └── session-clean.py           # 清理旧会话
 ├── session-namer-config.json      # API 配置（自动生成，不提交）
 ├── session-meta.json              # 会话元数据（自动生成，不提交）
@@ -148,7 +182,7 @@ session-manager-claude/
 
 - Python 3.8+
 - Claude Code CLI
-- 任一 OpenAI 兼容 API 或 Anthropic API 的 API Key
+- （可选）LLM API Key — 仅 SessionEnd 兜底需要，/bye 不需要
 
 ## License
 
