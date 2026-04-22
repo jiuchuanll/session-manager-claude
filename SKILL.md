@@ -1,6 +1,6 @@
 ---
 name: session-manager-claude
-description: Claude Code 会话管理工具。列出会话、重命名会话、确认自动命名、清理旧会话、配置自动命名。当用户提到「会话列表」「列出会话」「session list」「重命名会话」「rename session」「确认会话」「清理会话」「删除会话」「session clean」「会话管理」「配置会话命名」「setup session namer」时触发。
+description: Claude Code 会话管理工具。列出会话、重命名会话、确认自动命名、清理旧会话、退出前命名。当用户提到「会话列表」「列出会话」「session list」「重命名会话」「rename session」「确认会话」「清理会话」「删除会话」「session clean」「会话管理」「bye」「退出命名」「/bye」时触发。
 ---
 
 # Session Manager for Claude Code
@@ -88,7 +88,53 @@ python "~/.claude/skills/session-manager-claude/scripts/session-rename.py" --id 
 
 重命名成功后提示用户：新名称将在下次 `claude -r` 时生效。
 
-### 4. 清理会话
+### 4. /bye — 退出前交互式命名
+
+当用户输入 `/bye` 或说「bye」「退出命名」时，执行以下流程：
+
+**步骤 1：检查现有名称**
+
+```bash
+python "~/.claude/skills/session-manager-claude/scripts/session-rename.py" --current-dir "当前工作目录的绝对路径" --check
+```
+
+解析返回的 JSON：
+- 如果 `namingStatus` 为 `user_confirmed`：告知用户当前名称，询问是否修改
+- 如果 `namingStatus` 为 `auto`：告知用户有自动生成的名称，建议确认或修改
+- 如果 `namingStatus` 为 `none`：进入步骤 2
+
+**步骤 2：生成建议名称**
+
+根据当前对话的完整上下文，生成一个简洁的中文会话名称（不超过 20 个字）。
+
+生成要求：
+- 概括本次对话的主要话题和成果
+- 只基于有效内容（用户的问题/需求 + 你的结论/方案）
+- 排除：代码细节、工具调用过程、思考过程、系统消息
+
+**步骤 3：用户确认**
+
+展示建议名称，等待用户回应：
+- 用户说「确认」「好」「OK」或直接回车 → 使用建议名称
+- 用户输入新名称 → 使用用户提供的名称
+- 用户说「取消」「算了」「跳过」→ 不修改，提示可直接 `/exit` 退出
+
+**步骤 4：保存名称**
+
+```bash
+python "~/.claude/skills/session-manager-claude/scripts/session-rename.py" --current-dir "当前工作目录的绝对路径" --name "最终确定的名称"
+```
+
+**步骤 5：完成提示**
+
+保存成功后告知用户：「会话名称已保存为「XXX」。可以继续对话，或输入 /exit 退出。」
+
+**注意**：
+- /bye 保存的名称标记为 `user_confirmed`，后续 `/exit` 时 SessionEnd hook 不会覆盖
+- 用户可多次使用 /bye 更新名称，以最后一次为准
+- 如果用户忘记 /bye 直接 /exit，SessionEnd hook 会自动生成名称作为兜底
+
+### 5. 清理会话
 
 当用户说「清理会话」「删除旧会话」「session clean」时：
 
@@ -113,7 +159,7 @@ python "~/.claude/skills/session-manager-claude/scripts/session-clean.py" --dele
 ## 注意事项
 
 - 所有脚本输出 JSON 格式，你负责格式化为用户友好的展示
-- 会话的自动命名由 SessionEnd hook 完成，不在此 Skill 中触发
-- 重命名通过追加 custom-title 到 .jsonl 文件实现，等效 Claude Code 原生 /rename 命令
+- 会话的自动命名由 SessionEnd hook 完成（兜底），主要命名通过 /bye 交互完成
+- 重命名通过原位修改 .jsonl 文件中的 custom-title 和 agent-name 实现
 - 用户可通过 `claude --resume <sessionId>` 恢复任意会话
-- API Key 存储在用户本地 `~/.claude/session-namer-config.json`，不会上传或共享
+- API Key 存储在用户本地 `~/.claude/skills/session-manager-claude/session-namer-config.json`，不会上传或共享

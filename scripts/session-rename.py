@@ -1,8 +1,10 @@
 """
-会话重命名脚本：通过 ID 前缀匹配会话，追加 custom-title 到 .jsonl 文件。
+会话重命名脚本：通过 ID 前缀匹配或当前工作目录定位会话，原位修改 .jsonl 文件。
 用法：
   python session-rename.py --id <前缀> --name "新名称"
-  python session-rename.py --confirm-latest   # 确认最近的自动命名
+  python session-rename.py --current-dir "D:\\code\\project" --name "新名称"
+  python session-rename.py --current-dir "D:\\code\\project" --check
+  python session-rename.py --confirm-latest
 """
 import json
 import os
@@ -18,8 +20,11 @@ META_PATH = os.path.join(_SKILL_DIR, "session-meta.json")
 
 def read_meta():
     if os.path.exists(META_PATH):
-        with open(META_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(META_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
     return {"sessions": {}}
 
 
@@ -30,12 +35,17 @@ def write_meta(meta):
     os.replace(tmp, META_PATH)
 
 
+def cwd_to_workspace_key(cwd):
+    key = cwd.replace(":", "-").replace("\\", "-").replace("/", "-")
+    if key.startswith("-"):
+        key = key[1:]
+    return key
+
+
 def find_session_file(session_prefix):
-    """通过 ID 前缀在所有工作区中查找 .jsonl 文件"""
     matches = []
     if not os.path.exists(PROJECTS_DIR):
         return matches
-
     for workspace_key in os.listdir(PROJECTS_DIR):
         workspace_path = os.path.join(PROJECTS_DIR, workspace_key)
         if not os.path.isdir(workspace_path):
@@ -50,21 +60,137 @@ def find_session_file(session_prefix):
     return matches
 
 
-def append_title(jsonl_path, session_id, title):
-    """追加 custom-title 和 agent-name"""
-    entries = [
-        json.dumps({"type": "custom-title", "customTitle": title, "sessionId": session_id}, ensure_ascii=False),
-        json.dumps({"type": "agent-name", "agentName": title, "sessionId": session_id}, ensure_ascii=False),
-    ]
-    with open(jsonl_path, "a", encoding="utf-8") as f:
-        for entry in entries:
-            f.write(entry + "\n")
+def find_current_session(cwd):
+    workspace_key = cwd_to_workspace_key(cwd)
+    workspace_path = os.path.join(PROJECTS_DIR, workspace_key)
+    if not os.path.isdir(workspace_path):
+        return None
+    jsonl_files = []
+    for fname in os.listdir(workspace_path):
+        if fname.endswith(".jsonl"):
+            fpath = os.path.join(workspace_path, fname)
+            jsonl_files.append((fpath, os.path.getmtime(fpath)))
+    if not jsonl_files:
+        return None
+    jsonl_files.sort(key=lambda x: x[1], reverse=True)
+    best = jsonl_files[0][0]
+    sid = os.path.basename(best).replace(".jsonl", "")
+    return {"sessionId": sid, "path": best, "workspaceKey": workspace_key}
+
+
+def get_current_title(jsonl_path):
+    last_title = None
+    try:
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict) and entry.get("type") == "custom-title":
+                    last_title = entry.get("customTitle")
+    except Exception:
+        pass
+    return last_title
+
+
+def modify_title_in_jsonl(transcript_path, session_id, title):
+    entries = []
+    last_title_idx = -1
+    last_agent_idx = -1
+
+    with open(transcript_path, "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            raw = line.rstrip("\n\r")
+            if not raw.strip():
+                entries.append((raw, None))
+                continue
+            try:
+                entry = json.loads(raw)
+            except json.JSONDecodeError:
+                entries.append((raw, None))
+                continue
+            if isinstance(entry, dict):
+                if entry.get("type") == "custom-title":
+                    last_title_idx = i
+                if entry.get("type") == "agent-name":
+                    last_agent_idx = i
+            entries.append((raw, entry))
+
+    output_lines = []
+    for i, (raw, entry) in enumerate(entries):
+        if i == last_title_idx and isinstance(entry, dict):
+            entry["customTitle"] = title
+            entry["sessionId"] = session_id
+            output_lines.append(json.dumps(entry, ensure_ascii=False))
+        elif i == last_agent_idx and isinstance(entry, dict):
+            entry["agentName"] = title
+            entry["sessionId"] = session_id
+            output_lines.append(json.dumps(entry, ensure_ascii=False))
+        else:
+            output_lines.append(raw)
+
+    if last_title_idx < 0:
+        output_lines.append(json.dumps({"type": "custom-title", "customTitle": title, "sessionId": session_id}, ensure_ascii=False))
+    if last_agent_idx < 0:
+        output_lines.append(json.dumps({"type": "agent-name", "agentName": title, "sessionId": session_id}, ensure_ascii=False))
+
+    tmp = transcript_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(output_lines))
+        if output_lines and output_lines[-1] != "":
+            f.write("\n")
+    os.replace(tmp, transcript_path)
+    return True
+
+
+def update_meta_confirmed(meta, session_id, name, workspace_key):
+    now = datetime.datetime.now().isoformat()
+    meta.setdefault("sessions", {})[session_id] = {
+        "autoName": name,
+        "namingStatus": "user_confirmed",
+        "lastNamedMsgCount": 0,
+        "workspace": "",
+        "workspaceKey": workspace_key,
+        "namedAt": now,
+    }
+    write_meta(meta)
+
+
+def handle_check(match):
+    meta = read_meta()
+    sm = meta.get("sessions", {}).get(match["sessionId"], {})
+    current_title = get_current_title(match["path"])
+    naming_status = sm.get("namingStatus", "none")
+    print(json.dumps({
+        "status": "ok",
+        "sessionId": match["sessionId"],
+        "currentName": current_title or sm.get("autoName"),
+        "namingStatus": naming_status,
+    }, ensure_ascii=False))
+
+
+def handle_rename(match, name):
+    modify_title_in_jsonl(match["path"], match["sessionId"], name)
+    meta = read_meta()
+    update_meta_confirmed(meta, match["sessionId"], name, match["workspaceKey"])
+    print(json.dumps({
+        "status": "ok",
+        "action": "renamed",
+        "sessionId": match["sessionId"],
+        "name": name,
+    }, ensure_ascii=False))
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--id", help="Session ID or prefix")
     parser.add_argument("--name", help="New session name")
+    parser.add_argument("--current-dir", help="Current working directory to find active session")
+    parser.add_argument("--check", action="store_true", help="Check current session naming status")
     parser.add_argument("--confirm-latest", action="store_true", help="Confirm the latest auto-named session")
     args = parser.parse_args()
 
@@ -77,61 +203,49 @@ def main():
         if not pending:
             print(json.dumps({"status": "error", "message": "没有待确认的会话"}, ensure_ascii=False))
             return
-
         pending.sort(key=lambda x: x[1].get("namedAt", ""), reverse=True)
         sid, info = pending[0]
-        info["namingStatus"] = "confirmed"
+        info["namingStatus"] = "user_confirmed"
         write_meta(meta)
         print(json.dumps({
             "status": "ok",
             "action": "confirmed",
             "sessionId": sid,
-            "name": info.get("autoName", "")
+            "name": info.get("autoName", ""),
         }, ensure_ascii=False))
         return
 
-    if not args.id or not args.name:
-        print(json.dumps({"status": "error", "message": "需要 --id 和 --name 参数"}, ensure_ascii=False))
-        sys.exit(1)
+    if args.current_dir:
+        match = find_current_session(args.current_dir)
+        if not match:
+            print(json.dumps({"status": "error", "message": f"未找到工作目录 '{args.current_dir}' 的活跃会话"}, ensure_ascii=False))
+            sys.exit(1)
+        if args.check:
+            handle_check(match)
+            return
+        if not args.name:
+            print(json.dumps({"status": "error", "message": "需要 --name 参数"}, ensure_ascii=False))
+            sys.exit(1)
+        handle_rename(match, args.name)
+        return
 
-    matches = find_session_file(args.id)
+    if args.id:
+        if not args.name:
+            print(json.dumps({"status": "error", "message": "需要 --name 参数"}, ensure_ascii=False))
+            sys.exit(1)
+        matches = find_session_file(args.id)
+        if len(matches) == 0:
+            print(json.dumps({"status": "error", "message": f"未找到匹配 '{args.id}' 的会话"}, ensure_ascii=False))
+            sys.exit(1)
+        if len(matches) > 1:
+            ids = [m["sessionId"][:12] for m in matches]
+            print(json.dumps({"status": "error", "message": f"匹配到多个会话，请提供更长的前缀: {ids}"}, ensure_ascii=False))
+            sys.exit(1)
+        handle_rename(matches[0], args.name)
+        return
 
-    if len(matches) == 0:
-        print(json.dumps({"status": "error", "message": f"未找到匹配 '{args.id}' 的会话"}, ensure_ascii=False))
-        sys.exit(1)
-
-    if len(matches) > 1:
-        ids = [m["sessionId"][:12] for m in matches]
-        print(json.dumps({
-            "status": "error",
-            "message": f"匹配到多个会话，请提供更长的前缀: {ids}"
-        }, ensure_ascii=False))
-        sys.exit(1)
-
-    match = matches[0]
-    append_title(match["path"], match["sessionId"], args.name)
-
-    # 更新 meta
-    meta = read_meta()
-    if match["sessionId"] in meta.get("sessions", {}):
-        meta["sessions"][match["sessionId"]]["namingStatus"] = "renamed"
-        meta["sessions"][match["sessionId"]]["customName"] = args.name
-    else:
-        meta["sessions"][match["sessionId"]] = {
-            "autoName": args.name,
-            "namingStatus": "renamed",
-            "workspace": "",
-            "workspaceKey": match["workspaceKey"],
-            "namedAt": datetime.datetime.now().isoformat()
-        }
-    write_meta(meta)
-
-    print(json.dumps({
-        "status": "ok",
-        "action": "renamed",
-        "sessionId": match["sessionId"],
-        "name": args.name
-    }, ensure_ascii=False))
+    print(json.dumps({"status": "error", "message": "需要 --id、--current-dir 或 --confirm-latest 参数"}, ensure_ascii=False))
+    sys.exit(1)
 
 
 if __name__ == "__main__":
