@@ -225,7 +225,17 @@ def modify_title_in_jsonl(transcript_path, session_id, title):
         f.write("\n".join(output_lines))
         if output_lines and output_lines[-1] != "":
             f.write("\n")
-    os.replace(tmp, transcript_path)
+    # Windows 下 Claude Code 退出时可能短暂持有文件锁，重试几次
+    import time
+    for attempt in range(5):
+        try:
+            os.replace(tmp, transcript_path)
+            return True
+        except PermissionError:
+            if attempt < 4:
+                time.sleep(0.5)
+            else:
+                raise
     return True
 
 
