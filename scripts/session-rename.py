@@ -98,45 +98,26 @@ def get_current_title(jsonl_path):
 
 
 def modify_title_in_jsonl(transcript_path, session_id, title):
-    entries = []
-    last_title_idx = -1
-    last_agent_idx = -1
+    """删除所有旧的 custom-title / agent-name，在文件末尾追加唯一的终态标题。"""
+    output_lines = []
 
     with open(transcript_path, "r", encoding="utf-8") as f:
-        for i, line in enumerate(f):
+        for line in f:
             raw = line.rstrip("\n\r")
             if not raw.strip():
-                entries.append((raw, None))
+                output_lines.append(raw)
                 continue
             try:
                 entry = json.loads(raw)
             except json.JSONDecodeError:
-                entries.append((raw, None))
+                output_lines.append(raw)
                 continue
-            if isinstance(entry, dict):
-                if entry.get("type") == "custom-title":
-                    last_title_idx = i
-                if entry.get("type") == "agent-name":
-                    last_agent_idx = i
-            entries.append((raw, entry))
-
-    output_lines = []
-    for i, (raw, entry) in enumerate(entries):
-        if i == last_title_idx and isinstance(entry, dict):
-            entry["customTitle"] = title
-            entry["sessionId"] = session_id
-            output_lines.append(json.dumps(entry, ensure_ascii=False))
-        elif i == last_agent_idx and isinstance(entry, dict):
-            entry["agentName"] = title
-            entry["sessionId"] = session_id
-            output_lines.append(json.dumps(entry, ensure_ascii=False))
-        else:
+            if isinstance(entry, dict) and entry.get("type") in ("custom-title", "agent-name"):
+                continue  # 删除所有旧条目
             output_lines.append(raw)
 
-    if last_title_idx < 0:
-        output_lines.append(json.dumps({"type": "custom-title", "customTitle": title, "sessionId": session_id}, ensure_ascii=False))
-    if last_agent_idx < 0:
-        output_lines.append(json.dumps({"type": "agent-name", "agentName": title, "sessionId": session_id}, ensure_ascii=False))
+    output_lines.append(json.dumps({"type": "custom-title", "customTitle": title, "sessionId": session_id}, ensure_ascii=False))
+    output_lines.append(json.dumps({"type": "agent-name", "agentName": title, "sessionId": session_id}, ensure_ascii=False))
 
     tmp = transcript_path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
