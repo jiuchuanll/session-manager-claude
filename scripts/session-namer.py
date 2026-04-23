@@ -55,16 +55,16 @@ def read_config():
 
 # ── 上下文提取 ──────────────────────────────────────────────
 
-def _extract_text_only(content):
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-        return "\n".join(p for p in parts if p)
-    return ""
+_SKIP_TYPES = frozenset([
+    "custom-title", "agent-name", "queue-operation", "permission-mode",
+    "file-history-snapshot", "system", "file-snapshot", "attachment",
+])
+
+_NOISE_PREFIXES = (
+    "<local-command-", "<command-", "<command-name>",
+    "<system-reminder>", "Caveat:", "[Request interrupted",
+    "No response requested", "Tool loaded",
+)
 
 
 def _is_noise(text):
@@ -73,23 +73,90 @@ def _is_noise(text):
     t = text.strip()
     if len(t) < 3:
         return True
-    noise_prefixes = (
-        "<local-command-", "<command-", "<command-name>",
-        "<system-reminder>", "Caveat:", "[Request interrupted",
-        "No response requested", "Tool loaded",
-    )
-    for p in noise_prefixes:
-        if p in t[:120]:
-            return True
-    return False
+    return any(p in t[:120] for p in _NOISE_PREFIXES)
 
 
-def _strip_code_blocks(text):
-    return re.sub(r'```[\s\S]*?```', '[代码]', text)
+def _extract_user_text(content):
+    """提取用户消息的完整文本（限制 500 字）。"""
+    if isinstance(content, str):
+        return content.strip()[:500]
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                t = block.get("text", "").strip()
+                if t:
+                    parts.append(t)
+        return "\n".join(parts)[:500]
+    return ""
+
+
+def _extract_assistant_summary(content):
+    """只提取助手的总结性文字，跳过工具调用。返回 (text, tool_info)。
+
+    - text: 助手的文字回复（不含工具调用细节）
+    - tool_info: 工具调用摘要列表，如 ['Edit session-namer.py', 'Read config.json']
+    """
+    if isinstance(content, str):
+        return content.strip()[:400], []
+
+    if not isinstance(content, list):
+        return "", []
+
+    text_parts = []
+    tool_info = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type", "")
+
+        if btype == "text":
+            t = block.get("text", "").strip()
+            if t:
+                text_parts.append(t)
+
+        elif btype == "tool_use":
+            tool_name = block.get("name", "")
+            inp = block.get("input", {})
+            summary = _summarize_tool_call(tool_name, inp)
+            if summary:
+                tool_info.append(summary)
+
+    text = "\n".join(text_parts).strip()[:400]
+    return text, tool_info
+
+
+def _summarize_tool_call(tool_name, inp):
+    """从工具调用参数中提取文件名和操作摘要。"""
+    if not isinstance(inp, dict):
+        return None
+
+    # 提取文件路径
+    fpath = inp.get("file_path") or inp.get("path") or ""
+    fname = os.path.basename(fpath) if fpath else ""
+
+    if tool_name == "Edit":
+        old = inp.get("old_string", "")
+        hint = f"改 {old[:30]}" if old else ""
+        return f"Edit {fname} {hint}".strip()
+    elif tool_name == "Write":
+        return f"Write {fname}"
+    elif tool_name == "Read":
+        return f"Read {fname}"
+    elif tool_name == "Bash":
+        cmd = inp.get("command", "")
+        desc = inp.get("description", "")
+        label = desc if desc else cmd[:40]
+        return f"Bash: {label}"
+    elif tool_name in ("Grep", "Glob"):
+        pattern = inp.get("pattern", "")
+        return f"{tool_name} '{pattern}'"
+    return None
 
 
 def extract_meaningful_messages(transcript_path, max_count=30):
-    all_messages = []
+    """提取会话上下文：开头 3 条 + 最后 N 条，总预算 ~4000 字。"""
+    all_entries = []
     try:
         with open(transcript_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -102,15 +169,13 @@ def extract_meaningful_messages(transcript_path, max_count=30):
                     continue
 
                 entry_type = entry.get("type", "")
-                if entry_type in ("custom-title", "agent-name", "queue-operation",
-                                  "permission-mode", "file-history-snapshot",
-                                  "system", "file-snapshot", "attachment"):
+                if entry_type in _SKIP_TYPES:
                     continue
 
                 if entry_type == "summary":
                     summary_text = entry.get("summary", "")
                     if summary_text:
-                        all_messages.append(f"[摘要]: {summary_text.strip()[:300]}")
+                        all_entries.append(("[摘要]", summary_text.strip()[:300], []))
                     continue
 
                 msg = entry.get("message")
@@ -118,21 +183,51 @@ def extract_meaningful_messages(transcript_path, max_count=30):
                     continue
 
                 role = msg.get("role", "")
-                text = _extract_text_only(msg.get("content", ""))
-                if not text or _is_noise(text):
-                    continue
-
-                text = _strip_code_blocks(text)
-                text = text.strip()[:200]
+                content = msg.get("content", "")
 
                 if role == "user":
-                    all_messages.append(f"用户: {text}")
+                    text = _extract_user_text(content)
+                    if text and not _is_noise(text):
+                        all_entries.append(("用户", text, []))
                 elif role == "assistant":
-                    all_messages.append(f"助手: {text}")
+                    text, tool_info = _extract_assistant_summary(content)
+                    if text or tool_info:
+                        all_entries.append(("助手", text, tool_info))
+
     except Exception as e:
         log(f"extract_meaningful_messages error: {e}")
 
-    return all_messages[-max_count:] if all_messages else []
+    if not all_entries:
+        return []
+
+    # 取开头 3 条（话题建立）+ 最后 max_count 条（近期活动）
+    head_count = 3
+    if len(all_entries) <= head_count + max_count:
+        selected = all_entries
+    else:
+        selected = all_entries[:head_count] + all_entries[-max_count:]
+
+    # 格式化，总字数预算 ~4000
+    result = []
+    total_chars = 0
+    budget = 4000
+
+    for role, text, tool_info in selected:
+        parts = []
+        if text:
+            parts.append(text)
+        if tool_info:
+            # 最多保留 5 个工具摘要
+            for ti in tool_info[:5]:
+                parts.append(f"[{ti}]")
+
+        line_text = f"{role}: " + " | ".join(parts)
+        if total_chars + len(line_text) > budget:
+            break
+        result.append(line_text)
+        total_chars += len(line_text)
+
+    return result
 
 
 def format_context(messages):
