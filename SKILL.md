@@ -56,17 +56,21 @@ python "~/.claude/skills/session-manager-claude/scripts/session-list.py" --works
 python "~/.claude/skills/session-manager-claude/scripts/session-list.py" --workspace all --json
 ```
 
-**展示格式**：将 JSON 结果格式化为表格，包含：ID前缀、会话名称、消息数、最后修改时间、命名状态。
+**展示格式**：将 JSON 结果格式化为 Markdown 表格，必须包含以下列（缺一不可）：
 
-表格列顺序：`| ID前缀 | 会话名称 | 消息数 | 最后修改 | 状态 |`
+`| ID前缀 | 会话名称 | 消息数 | 确认状态 | 最后修改 |`
 
-命名状态图标：
-- 有 customTitle 且 namingStatus 为 confirmed → ✅已确认
-- 有 customTitle 且 namingStatus 为 auto → 🤖自动命名
-- 有 customTitle 且 namingStatus 为 renamed → ✏️已重命名
-- 无 customTitle → ⚪未命名
-
-ID前缀为 sessionId 的前 8 位，用反引号包裹显示，供后续操作引用。
+各列取值规则：
+- **ID前缀**：`sessionId` 前 8 位，反引号包裹，供后续操作引用
+- **会话名称**：优先 `customTitle`，其次 `autoName`，再次 `firstMessage` 前 20 字，都没有则显示 `(未命名)`
+- **消息数**：`messageCount`
+- **确认状态**：根据 `namingStatus` + `customTitle` 综合判断：
+  - `user_confirmed` → ✅已确认
+  - `auto` → 🤖自动命名
+  - `renamed` → ✏️已重命名
+  - `none` 且有 customTitle → ✅已确认
+  - `none` 且无 customTitle → ⚪未命名
+- **最后修改**：`lastModified` 取日期部分（YYYY-MM-DD），省略时间
 
 ### 2. 确认最近的自动命名
 

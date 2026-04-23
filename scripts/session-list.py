@@ -174,13 +174,16 @@ def main():
                         "sessions": sessions
                     }
 
-    # 合并 meta 信息
+    # 合并 meta 信息，确保每条会话都有完整字段
     for workspace_key, workspace_data in result.items():
         for session in workspace_data["sessions"]:
             sid = session["sessionId"]
             if sid in meta.get("sessions", {}):
-                session["namingStatus"] = meta["sessions"][sid].get("namingStatus", "")
+                session["namingStatus"] = meta["sessions"][sid].get("namingStatus", "") or "none"
                 session["autoName"] = meta["sessions"][sid].get("autoName", "")
+            else:
+                session["namingStatus"] = "none"
+                session["autoName"] = ""
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
