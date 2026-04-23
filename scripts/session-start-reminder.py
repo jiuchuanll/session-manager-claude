@@ -53,16 +53,8 @@ def get_pending_from_meta():
     return pending, corrupted
 
 
-def get_unnamed_sessions(cwd):
-    if not cwd:
-        return []
-
-    key = cwd.replace(":", "-").replace("\\", "-").replace("/", "-")
-    if key.startswith("-"):
-        key = key[1:]
-    workspace_path = os.path.join(PROJECTS_DIR, key)
-
-    if not os.path.isdir(workspace_path):
+def get_unnamed_sessions(current_sid=""):
+    if not os.path.exists(PROJECTS_DIR):
         return []
 
     if not os.path.exists(META_PATH):
@@ -78,44 +70,49 @@ def get_unnamed_sessions(cwd):
     unnamed = []
     now = datetime.datetime.now()
 
-    for fname in os.listdir(workspace_path):
-        if not fname.endswith(".jsonl"):
-            continue
-        sid = fname.replace(".jsonl", "")
-        if sid in known_sids:
+    for workspace_key in os.listdir(PROJECTS_DIR):
+        workspace_path = os.path.join(PROJECTS_DIR, workspace_key)
+        if not os.path.isdir(workspace_path):
             continue
 
-        fpath = os.path.join(workspace_path, fname)
-        has_title = False
-        msg_count = 0
+        for fname in os.listdir(workspace_path):
+            if not fname.endswith(".jsonl"):
+                continue
+            sid = fname.replace(".jsonl", "")
+            if sid in known_sids or sid == current_sid:
+                continue
 
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                for line in f:
-                    raw = line.strip()
-                    if not raw:
-                        continue
-                    try:
-                        entry = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(entry, dict):
-                        if entry.get("type") == "custom-title":
-                            has_title = True
-                            break
-                        msg = entry.get("message")
-                        if isinstance(msg, dict) and msg.get("role") in ("user", "assistant"):
-                            msg_count += 1
-        except Exception:
-            continue
+            fpath = os.path.join(workspace_path, fname)
+            has_title = False
+            msg_count = 0
 
-        if has_title or msg_count < 3:
-            continue
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    for line in f:
+                        raw = line.strip()
+                        if not raw:
+                            continue
+                        try:
+                            entry = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(entry, dict):
+                            if entry.get("type") == "custom-title":
+                                has_title = True
+                                break
+                            msg = entry.get("message")
+                            if isinstance(msg, dict) and msg.get("role") in ("user", "assistant"):
+                                msg_count += 1
+            except Exception:
+                continue
 
-        mtime = datetime.datetime.fromtimestamp(os.path.getmtime(fpath))
-        age_days = (now - mtime).days
+            if has_title or msg_count < 3:
+                continue
 
-        unnamed.append((sid, msg_count, age_days))
+            mtime = datetime.datetime.fromtimestamp(os.path.getmtime(fpath))
+            age_days = (now - mtime).days
+
+            unnamed.append((sid, msg_count, age_days))
 
     unnamed.sort(key=lambda x: x[2])
     return unnamed[:5]
@@ -128,6 +125,7 @@ def main():
         stdin_data = ""
 
     cwd = ""
+    data = {}
     try:
         data = json.loads(stdin_data)
         cwd = data.get("cwd", "")
@@ -135,8 +133,9 @@ def main():
         pass
 
     try:
+        current_sid = data.get("session_id", "")
         pending, corrupted = get_pending_from_meta()
-        unnamed = get_unnamed_sessions(cwd)
+        unnamed = get_unnamed_sessions(current_sid)
 
         if not pending and not corrupted and not unnamed:
             return
